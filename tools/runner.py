@@ -35,7 +35,8 @@ class PulmonieData(Dataset):
         pneumo_index = df[df["labels"] == 1].sample(n=len_,random_state=1,replace=False).index
         normal_index = df[df["labels"] == 0].sample(n=len_,random_state=1,replace=False).index
         out = pd.concat([df[df.index.isin(normal_index)],
-                        df[df.index.isin(pneumo_index)]]
+                        df[df.index.isin(pneumo_index)]
+                        ]
                         )
 
         return out
@@ -54,6 +55,7 @@ class PulmonieData(Dataset):
 class PulmonieDataModule(L.LightningDataModule):
     def __init__(self, batchsize:int=32,resample_val:bool=False,resample_train:bool=False):
         super().__init__()
+
         self.train_transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Resize((224, 224)),
@@ -62,32 +64,35 @@ class PulmonieDataModule(L.LightningDataModule):
             transforms.RandomRotation(degrees=10),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
-
         self.val_transform = transforms.Compose([
             transforms.ToTensor(),
+            transforms.Resize((224, 224)),
             transforms.Lambda(lambda x: x.repeat(3, 1, 1) if x.shape[0] == 1 else x),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            transforms.Resize((224, 224))
         ])
+
+        # flags
         self.batchsize = batchsize
         self.resample_val=resample_val
         self.resample_train=resample_train
     
 
     def setup(self, stage: str):
-        self.train_data = load_dataset("trpakov/chest-xray-classification", "full", split="train").to_pandas()
-        self.test_data = load_dataset("trpakov/chest-xray-classification", "full", split="test").to_pandas()
-        self.val_da = load_dataset("trpakov/chest-xray-classification", "full", split="validation").to_pandas()
-        self.val_ajout = pd.read_csv("/teamspace/studios/this_studio/pneumo_test.csv")
-        def safe_eval(text):
-            try:
-                return ast.literal_eval(text)
-            except Exception:
-                return None  # Ou une valeur par défaut si la conversion échoue
-
-        self.val_ajout["image"] = self.val_ajout["image"].apply(safe_eval)
-
-        self.val_data = pd.concat([self.val_da,  self.val_ajout], ignore_index=True)
+        self.train_data = load_dataset("trpakov/chest-xray-classification", "full", split="train",
+                                       cache_dir="../data").to_pandas()
+        self.test_data = load_dataset("trpakov/chest-xray-classification", "full", split="test",
+                                      cache_dir="../data").to_pandas()
+        self.val_data = load_dataset("trpakov/chest-xray-classification", "full", split="validation",
+                                   cache_dir="../data").to_pandas()
+        
+        # self.val_ajout = pd.read_csv("/teamspace/studios/this_studio/pneumo_test.csv")
+        # def safe_eval(text):
+        #     try:
+        #         return ast.literal_eval(text)
+        #     except Exception:
+        #         return None  # Ou une valeur par défaut si la conversion échoue
+        # self.val_ajout["image"] = self.val_ajout["image"].apply(safe_eval)
+        # self.val_data = pd.concat([self.val_da,  self.val_ajout], ignore_index=True)
 
 
         if stage == "fit":
@@ -101,25 +106,36 @@ class PulmonieDataModule(L.LightningDataModule):
             self.test = PulmonieData(self.test_data, self.val_transform,resample=False)
 
     def train_dataloader(self):
-        train_loader = DataLoader(self.train, batch_size=self.batchsize, num_workers=2, shuffle=True)
+        train_loader = DataLoader(self.train, 
+                                  batch_size=self.batchsize, 
+                                  # persistent_workers=True,
+                                  # num_workers=2, 
+                                  shuffle=True)
         return train_loader
 
     def val_dataloader(self):
-        val_loader = DataLoader(self.val, batch_size=self.batchsize, num_workers=2, shuffle=False)
+        val_loader = DataLoader(self.val, 
+                                batch_size=self.batchsize, 
+                                # persistent_workers=True,
+                                # num_workers=2, 
+                                shuffle=False)
         return val_loader
 
     def test_dataloader(self):
-        test_loader = DataLoader(self.test, batch_size=self.batchsize, num_workers=2, shuffle=False)
+        test_loader = DataLoader(self.test, 
+                                 batch_size=self.batchsize,
+                                  # num_workers=2, 
+                                 shuffle=False)
         return test_loader
 
 class Orchestrator(L.LightningModule):
   def __init__(self, pos_weight, lr):
     super().__init__()
     self.save_hyperparameters()
-    self.pos_weight = pos_weight
     self.lr = lr
 
-    self.model = torchvision.models.densenet121(weights=torchvision.models.DenseNet121_Weights.DEFAULT)
+    self.model = torchvision.models.densenet121(weights=torchvision.models.DenseNet121_Weights.IMAGENET1K_V1)
+    # self.model = torchvision.models.efficientnet_v2_s(weights=torchvision.models.EfficientNet_V2_S_Weights.IMAGENET1K_V1)
     self.model.classifier = torch.nn.Linear(self.model.classifier.in_features,1)
 
     self.train_accuracy = torchmetrics.Accuracy(task="binary", threshold=0.5)
@@ -143,83 +159,72 @@ class Orchestrator(L.LightningModule):
 
     self.loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
-    self.val_confusion_matrix = torchmetrics.ConfusionMatrix(task="binary", num_classes=2)
-    self.test_confusion_matrix = torchmetrics.ConfusionMatrix(task="binary", num_classes=2)
+    # self.val_confusion_matrix = torchmetrics.ConfusionMatrix(task="binary", num_classes=2)
+    # self.test_confusion_matrix = torchmetrics.ConfusionMatrix(task="binary", num_classes=2)
 
     self.valpreds = []
     self.valtrue = []
 
-
   def forward(self,x):
     return self.model(x)
 
-
-
   def shared_step(self,batch,stage:str,batch_idx):
     image,labels = batch
-    # print(f"Predictions: {labels}")
-    # print(f"Predictions: {labels.shape}")
     labels = labels.float().unsqueeze(1)
-   # print(f"apres: {labels}")
     logits = self(image)
 
     loss = self.loss_fn(logits,labels)
-    preds = torch.sigmoid(logits)
-
+    probs = torch.sigmoid(logits)
 
     if stage == "train":
-      self.train_accuracy(preds,labels.int())
+      self.train_accuracy(probs,labels.int())
       self.log("train_loss",loss, on_epoch=True ,prog_bar=True)
-      self.log("train_acc",self.train_accuracy, on_epoch=True , prog_bar=True)
-      return loss
+      self.log("train_acc",self.train_accuracy, on_epoch=True ,prog_bar=True)
 
-    if stage == "val":
+    elif stage == "val":
     # Mise à jour des métriques
-      self.val_accuracy(preds, labels.int())
-      self.val_precision(preds, labels.int())
-      self.val_recall(preds, labels.int())
-      self.val_f1(preds, labels.int())
-      self.val_auc_pr(preds, labels.int())
-      self.val_auc_roc(preds, labels.int())
-      #self.val_confusion_matrix.update(preds, labels.int())
+      self.val_accuracy(probs, labels.int())
+      self.val_precision(probs, labels.int())
+      self.val_recall(probs, labels.int())
+      self.val_f1(probs, labels.int())
+      self.val_auc_pr(probs, labels.int())
+      self.val_auc_roc(probs, labels.int())
 
       # Log des métriques
-      self.log("val_accuracy", self.val_accuracy, on_epoch=True, prog_bar=True)
-      self.log("val_precision", self.val_precision, on_epoch=True, prog_bar=True)
-      self.log("val_recall", self.val_recall, on_epoch=True, prog_bar=True)
+      self.log("val_accuracy", self.val_accuracy, on_epoch=True, prog_bar=False)
+      self.log("val_precision", self.val_precision, on_epoch=True, prog_bar=False)
+      self.log("val_recall", self.val_recall, on_epoch=True, prog_bar=False)
       self.log("val_f1", self.val_f1, on_epoch=True, prog_bar=True)
-      self.log("val_auc_pr", self.val_auc_pr, on_epoch=True, prog_bar=True)
-      self.log("val_auc_roc", self.val_auc_roc, on_epoch=True, prog_bar=True)
+      self.log("val_auc_pr", self.val_auc_pr, on_epoch=True, prog_bar=False)
+      self.log("val_auc_roc", self.val_auc_roc, on_epoch=True, prog_bar=False)
       self.log("val_loss", loss, prog_bar=True)
 
-      # Calculer et loguer la matrice de confusion
-      #conf_matrix = self.val_confusion_matrix.compute().cpu().numpy()
-
-      # Visualisation avec Seaborn
-      #
-      self.valpreds.append((torch.sigmoid(logits).cpu()>0.5).float())
+    # recording
+      self.valpreds.append((probs.cpu()>0.5).float())
       self.valtrue.append(labels.int().cpu())
 
-      return logits , labels
+      # return logits , labels
 
-    if stage == "test":
+    elif stage == "test":
 
-      self.test_accuracy(preds,labels.int())
-      self.test_precision(preds,labels.int())
-      self.test_recall(preds,labels.int())
-      self.test_f1(preds,labels.int())
-      self.test_auc_pr(preds,labels.int())
-      self.test_auc_roc(preds,labels.int())
+      self.test_accuracy(probs,labels.int())
+      self.test_precision(probs,labels.int())
+      self.test_recall(probs,labels.int())
+      self.test_f1(probs,labels.int())
+      self.test_auc_pr(probs,labels.int())
+      self.test_auc_roc(probs,labels.int())
 
-      self.log("test_accuracy",self.test_accuracy, prog_bar=True)
-      self.log("test_precision",self.test_precision, prog_bar=True)
-      self.log("test_recall",self.test_recall, prog_bar=True)
-      self.log("test_f1",self.test_f1, prog_bar=True)
-      self.log("test_auc_pr",self.test_auc_pr, prog_bar=True)
+      self.log("test_accuracy",self.test_accuracy, prog_bar=True, on_epoch=True)
+      self.log("test_precision",self.test_precision, prog_bar=True,on_epoch=True)
+      self.log("test_recall",self.test_recall, prog_bar=True,on_epoch=True)
+      self.log("test_f1",self.test_f1, prog_bar=True,on_epoch=True)
+      self.log("test_auc_pr",self.test_auc_pr, prog_bar=True,on_epoch=True)
       self.log("test_loss",loss)
+    
+    else:
+       raise NotImplementedError()
 
-      return loss
-
+    return loss
 
   def training_step(self,batch,batch_idx):
     return self.shared_step(batch,"train",batch_idx)
@@ -245,8 +250,6 @@ class Orchestrator(L.LightningModule):
     self.valpreds.clear()
     self.valtrue.clear()
 
-
-
   def configure_optimizers(self):
     optimizer = torch.optim.Adam(self.parameters(),lr=self.lr)
     return optimizer
@@ -255,51 +258,53 @@ class Orchestrator(L.LightningModule):
 if __name__ == "__main__":
 
 
-    wandb_logger = WandbLogger(project='pneumonia-detection_densenet121', name = "AjoutDonnee_val",log_model=True)
+    wandb_logger = WandbLogger(project='pneumonia-cls', name="Debug", log_model=False)
 
     data =  PulmonieDataModule(batchsize=64,
                                 resample_val=True,
                                 resample_train=False)
 
     orch = Orchestrator(pos_weight=torch.tensor([2.0]),lr=1e-3)
-    early_stop_callback = EarlyStopping(monitor="val_f1", min_delta=0.00, patience=10, verbose=False, mode="max")
+    early_stop_callback = EarlyStopping(monitor="val_f1", 
+                                        min_delta=1e-4, 
+                                        patience=10, 
+                                        verbose=False, 
+                                        mode="max")
     checkpoint_callback = ModelCheckpoint(
-    save_top_k=10,
+    save_top_k=1,
     monitor="val_f1",
     mode="max",
-    dirpath="/teamspace/studios/this_studio/checkpoint/",
+    dirpath="../models/ckpt",
     filename="sample-mnist-{epoch:02d}-{val_f1:.2f}",
 )
     callbacks = [early_stop_callback,checkpoint_callback]
 
-    
-
-
     trainer = L.Trainer(max_epochs=50, 
-                        accelerator='gpu', 
+                        max_steps=50,
+                        accelerator='cpu',
+                        num_sanity_val_steps=2, 
                         logger=wandb_logger,
-                        precision='16-mixed',
+                        precision='bf16-mixed',
                         deterministic=False,
                         reload_dataloaders_every_n_epochs=3,
                         callbacks = callbacks
                         )
-    #trainer.fit(orch, data)
+    
+    trainer.fit(orch, data)
 
 
-    trainer.test(orch,data,ckpt_path="/teamspace/studios/this_studio/checkpoint/sample-mnist-epoch=04-val_f1=0.71.ckpt")
-
-    dummy_input = torch.randn(1, 3, 224, 224)
-
-    import torch.onnx
-
-# Exportation du modèle vers ONNX
-onnx_file_path = "pulmonie.onnx"
-torch.onnx.export(orch,              # Le modèle PyTorch
-                  dummy_input,        # Exemple de donnée (batch de taille 1, image 224x224)
-                  onnx_file_path,     # Chemin où enregistrer le fichier ONNX
-                  export_params=True, # Enregistrer les poids du modèle
-                  opset_version=12,   # Version de l'API ONNX
-                  do_constant_folding=True,  # Optimisation de constante
-                  input_names=['input'],  # Noms des entrées
-                  output_names=['output'],  # Noms des sorties
-                  dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}})  # Pour des tailles de batch dynamiques
+    # trainer.test(orch,data,ckpt_path="/teamspace/studios/this_studio/checkpoint/sample-mnist-epoch=04-val_f1=0.71.ckpt")
+    
+    # Exportation du modèle vers ONNX
+    # dummy_input = torch.randn(1, 3, 224, 224)
+    # import torch.onnx
+    # onnx_file_path = "pneumonia.onnx"
+    # torch.onnx.export(orch,              # Le modèle PyTorch
+    #                   dummy_input,        # Exemple de donnée (batch de taille 1, image 224x224)
+    #                   onnx_file_path,     # Chemin où enregistrer le fichier ONNX
+    #                   export_params=True, # Enregistrer les poids du modèle
+    #                   opset_version=12,   # Version de l'API ONNX
+    #                   do_constant_folding=True,  # Optimisation de constante
+    #                   input_names=['input'],  # Noms des entrées
+    #                   output_names=['output'],  # Noms des sorties
+    #                   dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}})  # Pour des tailles de batch dynamiques
