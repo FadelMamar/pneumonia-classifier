@@ -5,13 +5,19 @@ isort
 jupyterlab
 loguru
 matplotlib
+seaborn
 notebook
 numpy
 pandas
 pip
 python-dotenv
-scikit-learn
 tqdm
-typer
 datargs
+torch
+torchvision
+lightning
+pillow
+typer
+wandb
+torchmetrics
 -e .
