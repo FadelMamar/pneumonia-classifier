@@ -7,19 +7,27 @@ import pytorch_lightning as L
 
 if __name__ == "__main__":
 
+    # Select dataset to use for experiments
+    use_huggingface_data=True # set to False to use data @ "../data/PediatricChestX-rayPneumonia"
 
-    wandb_logger = WandbLogger(project='pneumonia-cls', name="Debug", log_model=False)
+    # build datamodule
+    datamodule = MyDataModule(batchsize=32,
+                              resample_val=True,
+                              resample_train=False,
+                              use_pediatricdataset=not use_huggingface_data, 
+                              pediatricdata_path="../data/PediatricChestX-rayPneumonia")
 
-    data =  MyDataModule(batchsize=64,
-                                resample_val=True,
-                                resample_train=False)
-
-    orch = Orchestrator(pos_weight=torch.tensor([2.0]),lr=1e-3)
+    orch = Orchestrator(pos_weight=torch.tensor([2.0]),
+                        lr=1e-3)
+    
     early_stop_callback = EarlyStopping(monitor="val_f1", 
                                         min_delta=1e-4, 
                                         patience=10, 
                                         verbose=False, 
                                         mode="max")
+    
+    wandb_logger = WandbLogger(project='pneumonia-cls', name="Debug", log_model=False)
+
     checkpoint_callback = ModelCheckpoint(
     save_top_k=1,
     monitor="val_f1",
@@ -30,7 +38,7 @@ if __name__ == "__main__":
     callbacks = [early_stop_callback,checkpoint_callback]
 
     trainer = L.Trainer(max_epochs=50, 
-                        max_steps=50,
+                        max_steps=-1,
                         accelerator='cpu',
                         num_sanity_val_steps=2, 
                         logger=wandb_logger,
@@ -40,7 +48,7 @@ if __name__ == "__main__":
                         callbacks = callbacks
                         )
     
-    trainer.fit(orch, data)
+    trainer.fit(orch, datamodule)
 
 
     # trainer.test(orch,data,ckpt_path="/teamspace/studios/this_studio/checkpoint/sample-mnist-epoch=04-val_f1=0.71.ckpt")

@@ -116,7 +116,7 @@ class Orchestrator(L.LightningModule):
 
   def shared_step(self,batch,stage:str,batch_idx):
     image,labels = batch
-    labels = labels.float().unsqueeze(1)
+    labels = labels.float()#.unsqueeze(1)
     logits = self(image)
 
     loss = self.loss_fn(logits,labels)

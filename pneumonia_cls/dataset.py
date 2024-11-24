@@ -45,7 +45,7 @@ class MyDataset(Dataset):
     label = self.data["labels"].iat[idx]
     if self.transform:
       image = self.transform(image)
-    return image,label
+    return image, torch.Tensor([label]).int()
 
 
 class PediatricDataset(Dataset):
@@ -142,6 +142,9 @@ class MyDataModule(L.LightningDataModule):
         self.resample_train=resample_train
         self.use_pediatricdataset=use_pediatricdataset
         self.pediatricdata_path=pediatricdata_path
+
+        print('use_pediatricdataset:',use_pediatricdataset,end='\n')
+        print('pediatricdata_path:',self.pediatricdata_path,end='\n')
     
 
     def setup(self, stage: str):
