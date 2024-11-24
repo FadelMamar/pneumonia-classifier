@@ -20,4 +20,5 @@ pillow
 typer
 wandb
 torchmetrics
+scikit-learn
 -e .
