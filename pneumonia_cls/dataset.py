@@ -42,7 +42,7 @@ class MyDataset(Dataset):
   def __getitem__(self,idx):
     image = self.data["image"].iloc[idx]["bytes"]
     image = Image.open(io.BytesIO(image))
-    label = self.data["labels"].iat[idx]
+    label = self.data["labels"].iloc[idx]
     if self.transform:
       image = self.transform(image)
     return image, torch.Tensor([label]).int()
@@ -58,13 +58,18 @@ class PediatricDataset(Dataset):
         val_size = 0.3 # for train-val split
 
         if split in ['validation','train']:
+
+            #print("la route principale",self.data_dir)
             self.data_dir = self.data_dir/'train'
             pneumo_images = list((self.data_dir/'PNEUMONIA').glob('*.jpeg'))
+            #print("la route des images",pneumo_images)
             normal_images = list((self.data_dir/'NORMAL').glob('*.jpeg'))
             images_paths = list(zip(['PNEUMONIA']*len(pneumo_images),pneumo_images)) + list(zip(['NORMAL']*len(normal_images),normal_images))
+            #print(f"Found {len(pneumo_images)} pneumonia images and {len(normal_images)} normal images.")
             dict_ =  {'image_path':[j for i,j in images_paths], 
                     'labels':[self.label_map[i] for i,j in images_paths ]}
             df = pd.DataFrame.from_dict(dict_, orient='columns')
+           # print(f"Found {len(pneumo_images)} pneumonia images and {len(normal_images)} normal images.")
             df_train, df_val = train_test_split(df,test_size=val_size,random_state=41,shuffle=True,stratify=df['labels'])
 
             if split == 'train':
@@ -118,7 +123,7 @@ class MyDataModule(L.LightningDataModule):
                  batchsize:int=32,
                  resample_val:bool=False,
                  resample_train:bool=False,
-                 use_pediatricdataset:bool=False,pediatricdata_path:str=None):
+                 use_pediatricdataset:bool=True,pediatricdata_path:str="/teamspace/studios/this_studio/pneumonia-classifier/data/Pediatric Chest X-ray Pneumonia"):
         super().__init__()
 
         self.train_transform = transforms.Compose([
@@ -184,7 +189,7 @@ class MyDataModule(L.LightningDataModule):
         train_loader = DataLoader(self.train, 
                                   batch_size=self.batchsize, 
                                   # persistent_workers=True,
-                                  # num_workers=2, 
+                                  num_workers=4, 
                                   shuffle=True)
         return train_loader
 
@@ -192,14 +197,22 @@ class MyDataModule(L.LightningDataModule):
         val_loader = DataLoader(self.val, 
                                 batch_size=self.batchsize, 
                                 # persistent_workers=True,
-                                # num_workers=2, 
+                                num_workers=4, 
                                 shuffle=False)
         return val_loader
 
     def test_dataloader(self):
         test_loader = DataLoader(self.test, 
                                  batch_size=self.batchsize,
-                                  # num_workers=2, 
+                                num_workers=4, 
                                  shuffle=False)
         return test_loader
 
+# if __name__ == "__main__":
+#     papi = MyDataModule(batchsize=32, resample_val=True, use_pediatricdataset=True, pediatricdata_path="/teamspace/studios/this_studio/pneumonia-classifier/data/Pediatric Chest X-ray Pneumonia")
+#     papi.setup(stage="fit")
+#     train_loader = papi.train_dataloader()
+#     for batch in train_loader:
+#         images, labels = batch
+#         print(images.shape, labels.shape)
+#         break

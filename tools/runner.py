@@ -15,7 +15,7 @@ if __name__ == "__main__":
                               resample_val=True,
                               resample_train=False,
                               use_pediatricdataset=not use_huggingface_data, 
-                              pediatricdata_path="../data/PediatricChestX-rayPneumonia")
+                              pediatricdata_path="/teamspace/studios/this_studio/pneumonia-classifier/data/Pediatric Chest X-ray Pneumonia")
 
     orch = Orchestrator(pos_weight=torch.tensor([2.0]),
                         lr=1e-3)
@@ -26,7 +26,7 @@ if __name__ == "__main__":
                                         verbose=False, 
                                         mode="max")
     
-    wandb_logger = WandbLogger(project='pneumonia-cls', name="Debug", log_model=False)
+    wandb_logger = WandbLogger(project='pneumonia-cls', name="Using hugging to test", log_model=False)
 
     checkpoint_callback = ModelCheckpoint(
     save_top_k=1,
@@ -39,30 +39,30 @@ if __name__ == "__main__":
 
     trainer = L.Trainer(max_epochs=50, 
                         max_steps=-1,
-                        accelerator='cpu',
+                        accelerator='gpu',
                         num_sanity_val_steps=2, 
                         logger=wandb_logger,
-                        precision='bf16-mixed',
+                        precision='16-mixed',
                         deterministic=False,
                         reload_dataloaders_every_n_epochs=3,
                         callbacks = callbacks
                         )
     
-    trainer.fit(orch, datamodule)
+    #trainer.fit(orch, datamodule)
 
 
-    # trainer.test(orch,data,ckpt_path="/teamspace/studios/this_studio/checkpoint/sample-mnist-epoch=04-val_f1=0.71.ckpt")
+    #trainer.test(orch,datamodule,ckpt_path="/teamspace/studios/this_studio/pneumonia-classifier/models/ckpt/sample-mnist-epoch=29-val_f1=0.99.ckpt")
     
-    # Exportation du modèle vers ONNX
-    # dummy_input = torch.randn(1, 3, 224, 224)
-    # import torch.onnx
-    # onnx_file_path = "pneumonia.onnx"
-    # torch.onnx.export(orch,              # Le modèle PyTorch
-    #                   dummy_input,        # Exemple de donnée (batch de taille 1, image 224x224)
-    #                   onnx_file_path,     # Chemin où enregistrer le fichier ONNX
-    #                   export_params=True, # Enregistrer les poids du modèle
-    #                   opset_version=12,   # Version de l'API ONNX
-    #                   do_constant_folding=True,  # Optimisation de constante
-    #                   input_names=['input'],  # Noms des entrées
-    #                   output_names=['output'],  # Noms des sorties
-    #                   dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}})  # Pour des tailles de batch dynamiques
+    #Exportation du modèle vers ONNX
+    dummy_input = torch.randn(1, 3, 224, 224)
+    import torch.onnx
+    onnx_file_path = "pneumonia.onnx"
+    torch.onnx.export(orch,              # Le modèle PyTorch
+                      dummy_input,        # Exemple de donnée (batch de taille 1, image 224x224)
+                      onnx_file_path,     # Chemin où enregistrer le fichier ONNX
+                      export_params=True, # Enregistrer les poids du modèle
+                      opset_version=12,   # Version de l'API ONNX
+                      do_constant_folding=True,  # Optimisation de constante
+                      input_names=['input'],  # Noms des entrées
+                      output_names=['output'],  # Noms des sorties
+                      dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}})  # Pour des tailles de batch dynamiques

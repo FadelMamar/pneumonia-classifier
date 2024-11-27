@@ -21,4 +21,5 @@ typer
 wandb
 torchmetrics
 scikit-learn
+datasets
 -e .
